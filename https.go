@@ -17,7 +17,7 @@ func newHTTPServer() *http.Server {
 }
 
 func isHostAllowed(host string) bool {
-	if strings.HasSuffix(host, "bitsflow.org") {
+	if strings.HasSuffix(host, allowedDomain) {
 		return true
 	}
 	return false

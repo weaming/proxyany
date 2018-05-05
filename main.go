@@ -11,16 +11,17 @@ import (
 )
 
 var (
-	// target = "https://github.com/weaming/"
-	target = "https://www.google.com"
-	bind   = ":20443"
-	https  = false
+	target        = "https://www.google.com"
+	bind          = ":20443"
+	https         = false
+	allowedDomain = "bitsflow.org"
 )
 
 func init() {
-	flag.StringVar(&target, "from", target, "your reverse proxy target URL")
+	flag.StringVar(&target, "from", target, "your reverse proxy target url, including path is allowed, then your visit path will be append to it")
 	flag.StringVar(&bind, "to", bind, "local bind [<host>]:<port>")
-	flag.BoolVar(&https, "https", https, "https mode, auto cert from let's encrypt")
+	flag.StringVar(&allowedDomain, "domain", allowedDomain, "domain allowed to access, all sub domains will be allowed too")
+	flag.BoolVar(&https, "https", https, "HTTPS mode, auto certification from let's encrypt")
 
 	flag.Parse()
 }
