@@ -11,7 +11,8 @@ import (
 )
 
 var (
-	target = "https://github.com/weaming/"
+	// target = "https://github.com/weaming/"
+	target = "https://www.google.com"
 	bind   = ":20443"
 	https  = false
 )
