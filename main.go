@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/cssivision/reverseproxy"
+	"github.com/weaming/proxyany/reverseproxy"
 )
 
 var (
@@ -55,7 +55,7 @@ func newProxyServer() *http.Server {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		proxy := reverseproxy.NewReverseProxy(targetURL)
+		proxy := reverseproxy.NewReverseProxy(targetURL, nil)
 		proxy.ServeHTTP(w, r)
 	})
 
