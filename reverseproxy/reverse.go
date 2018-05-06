@@ -88,7 +88,7 @@ func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
 		req.URL.Scheme = target.Scheme
 
 		// host, specific the low level tcp connection target
-		req.URL.Host = mapping.ReplaceStr(req.URL.Host)
+		req.URL.Host = mapping.ReplaceStr(req.Host)
 
 		// path
 		req.URL.Path = singleJoiningSlash(target.Path, req.URL.Path)
@@ -142,6 +142,9 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	copyHeader(outreq.Header, req.Header)
+
+	p.Director(outreq)
+	outreq.Close = false
 
 	// Remove hop-by-hop headers listed in the "Connection" header, Remove hop-by-hop headers.
 	removeHeaders(outreq.Header)
