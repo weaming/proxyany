@@ -10,7 +10,7 @@
 ```
 Usage of proxyany:
   -from string
-    	your reverse proxy target url, including path is allowed, then your visit path will be append to it (default "https://www.google.com")
+    	your reverse proxy target url, including path is allowed, then your visit path will be appended to it (default "https://www.google.com")
   -to string
     	local bind [<host>]:<port> (default ":20443")
   -https
@@ -27,7 +27,7 @@ $ proxyany -from https://github.com/weaming/ -to :20443
 $ proxyany -from https://www.google.com -https
 
 # proxy https://static.rust-lang.org to speed up downloading rust installer
-$ proxyany -from https://static.rust-lang.org -https
+$ proxyany -from https://static.rust-lang.org -https -domain rustup.bitsflow.org
 ```
 
 You could modify your hosts records to point the domain to your server,

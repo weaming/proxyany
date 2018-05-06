@@ -18,7 +18,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&target, "from", target, "your reverse proxy target url, including path is allowed, then your visit path will be append to it")
+	flag.StringVar(&target, "from", target, "your reverse proxy target url, including path is allowed, then your visit path will be appended to it")
 	flag.StringVar(&bind, "to", bind, "local bind [<host>]:<port>")
 	flag.StringVar(&allowedDomain, "domain", allowedDomain, "domain allowed to access, all sub domains will be allowed too")
 	flag.BoolVar(&https, "https", https, "HTTPS mode, auto certification from let's encrypt")
