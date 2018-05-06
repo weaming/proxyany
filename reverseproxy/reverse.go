@@ -1,3 +1,4 @@
+// fork from https://github.com/cssivision/reverseproxy
 package reverseproxy
 
 import (
@@ -69,24 +70,34 @@ type requestCanceler interface {
 func NewReverseProxy(target *url.URL, replaceHost func(host string) string) *ReverseProxy {
 	targetQuery := target.RawQuery
 	director := func(req *http.Request) {
+		// 1. req.URL
+
+		// scheme
 		req.URL.Scheme = target.Scheme
+
+		// host, specific the low level tcp connection target
 		if replaceHost != nil {
 			req.URL.Host = replaceHost(req.URL.Host)
 		} else {
 			req.URL.Host = target.Host
 		}
+
+		// path
 		req.URL.Path = singleJoiningSlash(target.Path, req.URL.Path)
 
-		// If Host is empty, the Request.Write method uses
-		// the value of URL.Host.
-		// force use URL.Host
-		req.Host = req.URL.Host
+		// query
 		if targetQuery == "" || req.URL.RawQuery == "" {
 			req.URL.RawQuery = targetQuery + req.URL.RawQuery
 		} else {
 			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
 		}
 
+		// 2. req.Host, specific the http request content, aka "Host" header
+		// If Host is empty, the Request.Write method uses the value of URL.Host.
+		// force use URL.Host
+		req.Host = req.URL.Host
+
+		// 3. req.Header
 		if _, ok := req.Header["User-Agent"]; !ok {
 			req.Header.Set("User-Agent", "")
 		}
