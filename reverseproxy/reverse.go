@@ -8,11 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
-
-var onExitFlushLoop func()
 
 const (
 	defaultTimeout = time.Minute * 5
@@ -52,6 +49,9 @@ type ReverseProxy struct {
 	// modifies the Response from the backend.
 	// If it returns an error, the proxy returns a StatusBadGateway error.
 	ModifyResponse func(*http.Response) error
+
+	// Mapping is the mapping of user access domain to remote target domain
+	Mapping *DomainMapping
 }
 
 type requestCanceler interface {
@@ -67,25 +67,25 @@ type requestCanceler interface {
 // NewReverseProxy does not rewrite the Host header.
 // To rewrite Host headers, use ReverseProxy directly with a custom
 // Director policy.
-func NewReverseProxy(target *url.URL, fn HostReplaceFunc) *ReverseProxy {
-	targetQuery := target.RawQuery
+func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
+	mapping := &DomainMapping{
+		from: accessDomain,
+		to:   target.Host,
+	}
+
 	director := func(req *http.Request) {
 		// 1. req.URL
-
 		// scheme
 		req.URL.Scheme = target.Scheme
 
 		// host, specific the low level tcp connection target
-		if fn != nil {
-			req.URL.Host = fn(req.URL.Host, target.Host)
-		} else {
-			req.URL.Host = target.Host
-		}
+		req.URL.Host = mapping.ReplaceStr(req.URL.Host)
 
 		// path
 		req.URL.Path = singleJoiningSlash(target.Path, req.URL.Path)
 
 		// query
+		targetQuery := target.RawQuery
 		if targetQuery == "" || req.URL.RawQuery == "" {
 			req.URL.RawQuery = targetQuery + req.URL.RawQuery
 		} else {
@@ -99,141 +99,11 @@ func NewReverseProxy(target *url.URL, fn HostReplaceFunc) *ReverseProxy {
 
 		// 3. req.Header
 		if _, ok := req.Header["User-Agent"]; !ok {
-			req.Header.Set("User-Agent", "")
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36")
 		}
 	}
 
-	return &ReverseProxy{Director: director}
-}
-
-func singleJoiningSlash(a, b string) string {
-	aslash := strings.HasSuffix(a, "/")
-	bslash := strings.HasPrefix(b, "/")
-	switch {
-	case aslash && bslash:
-		return a + b[1:]
-	case !aslash && !bslash:
-		return a + "/" + b
-	}
-	return a + b
-}
-
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
-}
-
-// Hop-by-hop headers. These are removed when sent to the backend.
-// http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html
-var hopHeaders = []string{
-	"Connection",
-	"Proxy-Connection", // non-standard but still sent by libcurl and rejected by e.g. google
-	"Keep-Alive",
-	"Proxy-Authenticate",
-	"Proxy-Authorization",
-	"Te",      // canonicalized version of "TE"
-	"Trailer", // not Trailers per URL above; http://www.rfc-editor.org/errata_search.php?eid=4522
-	"Transfer-Encoding",
-	"Upgrade",
-}
-
-func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) {
-	if p.FlushInterval != 0 {
-		if wf, ok := dst.(writeFlusher); ok {
-			mlw := &maxLatencyWriter{
-				dst:     wf,
-				latency: p.FlushInterval,
-				done:    make(chan bool),
-			}
-
-			go mlw.flushLoop()
-			defer mlw.stop()
-			dst = mlw
-		}
-	}
-
-	io.Copy(dst, src)
-}
-
-type writeFlusher interface {
-	io.Writer
-	http.Flusher
-}
-
-type maxLatencyWriter struct {
-	dst     writeFlusher
-	latency time.Duration
-	mu      sync.Mutex
-	done    chan bool
-}
-
-func (m *maxLatencyWriter) Write(b []byte) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.dst.Write(b)
-}
-
-func (m *maxLatencyWriter) flushLoop() {
-	t := time.NewTicker(m.latency)
-	defer t.Stop()
-	for {
-		select {
-		case <-m.done:
-			if onExitFlushLoop != nil {
-				onExitFlushLoop()
-			}
-			return
-		case <-t.C:
-			m.mu.Lock()
-			m.dst.Flush()
-			m.mu.Unlock()
-		}
-	}
-}
-
-func (m *maxLatencyWriter) stop() {
-	m.done <- true
-}
-
-func (p *ReverseProxy) logf(format string, args ...interface{}) {
-	if p.ErrorLog != nil {
-		p.ErrorLog.Printf(format, args...)
-	} else {
-		log.Printf(format, args...)
-	}
-}
-
-func removeHeaders(header http.Header) {
-	// Remove hop-by-hop headers listed in the "Connection" header.
-	if c := header.Get("Connection"); c != "" {
-		for _, f := range strings.Split(c, ",") {
-			if f = strings.TrimSpace(f); f != "" {
-				header.Del(f)
-			}
-		}
-	}
-
-	// Remove hop-by-hop headers
-	for _, h := range hopHeaders {
-		if header.Get(h) != "" {
-			header.Del(h)
-		}
-	}
-}
-
-func addXForwardedForHeader(req *http.Request) {
-	if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
-		// If we aren't the first proxy retain prior
-		// X-Forwarded-For information as a comma+space
-		// separated list and fold multiple headers into one.
-		if prior, ok := req.Header["X-Forwarded-For"]; ok {
-			clientIP = strings.Join(prior, ", ") + clientIP
-		}
-		req.Header.Set("X-Forwarded-For", clientIP)
-	}
+	return &ReverseProxy{Director: director, Mapping: mapping}
 }
 
 func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -247,7 +117,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	*outreq = *req
 
 	if cn, ok := rw.(http.CloseNotifier); ok {
-		if requestCanceler, ok := transport.(requestCanceler); ok {
+		if c, ok := transport.(requestCanceler); ok {
 			// After the Handler has returned, there is no guarantee
 			// that the channel receives a value, so to make sure
 			reqDone := make(chan struct{})
@@ -257,7 +127,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 			go func() {
 				select {
 				case <-clientGone:
-					requestCanceler.CancelRequest(outreq)
+					c.CancelRequest(outreq)
 				case <-reqDone:
 				}
 			}()
@@ -267,12 +137,15 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	p.Director(outreq)
 	outreq.Close = false
 
-	// We may modify the header (shallow copied above), so we only copy it.
+	// We may modify the header (shallow copied above), so we copy it.
 	outreq.Header = make(http.Header)
 	copyHeader(outreq.Header, req.Header)
 
 	// Remove hop-by-hop headers listed in the "Connection" header, Remove hop-by-hop headers.
 	removeHeaders(outreq.Header)
+
+	// replace domain in headers
+	p.Mapping.ReplaceHeader(&req.Header)
 
 	// Add X-Forwarded-For Header.
 	addXForwardedForHeader(outreq)
@@ -284,8 +157,12 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Response part
+
 	// Remove hop-by-hop headers listed in the "Connection" header of the response, Remove hop-by-hop headers.
 	removeHeaders(res.Header)
+	// replace domain in headers reversely
+	p.Mapping.Reverse().ReplaceHeader(&req.Header)
 
 	if p.ModifyResponse != nil {
 		if err := p.ModifyResponse(res); err != nil {
@@ -387,5 +264,31 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.ProxyHTTPS(rw, req)
 	} else {
 		p.ProxyHTTP(rw, req)
+	}
+}
+
+func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) (int64, error) {
+	if p.FlushInterval != 0 {
+		if wf, ok := dst.(writeFlusher); ok {
+			mlw := &maxLatencyWriter{
+				dst:     wf,
+				latency: p.FlushInterval,
+				done:    make(chan bool),
+			}
+
+			go mlw.flushLoop()
+			defer mlw.stop()
+			dst = mlw
+		}
+	}
+
+	return io.Copy(dst, src)
+}
+
+func (p *ReverseProxy) logf(format string, args ...interface{}) {
+	if p.ErrorLog != nil {
+		p.ErrorLog.Printf(format, args...)
+	} else {
+		log.Printf(format, args...)
 	}
 }

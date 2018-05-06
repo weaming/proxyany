@@ -55,7 +55,7 @@ func newProxyServer() *http.Server {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		proxy := reverseproxy.NewReverseProxy(targetURL, reverseproxy.NewHostReplaceFunc(allowedDomain))
+		proxy := reverseproxy.NewReverseProxy(targetURL, allowedDomain)
 		proxy.ServeHTTP(w, r)
 	})
 
