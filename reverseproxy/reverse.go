@@ -67,7 +67,7 @@ type requestCanceler interface {
 // NewReverseProxy does not rewrite the Host header.
 // To rewrite Host headers, use ReverseProxy directly with a custom
 // Director policy.
-func NewReverseProxy(target *url.URL, replaceHost func(host string) string) *ReverseProxy {
+func NewReverseProxy(target *url.URL, fn HostReplaceFunc) *ReverseProxy {
 	targetQuery := target.RawQuery
 	director := func(req *http.Request) {
 		// 1. req.URL
@@ -76,8 +76,8 @@ func NewReverseProxy(target *url.URL, replaceHost func(host string) string) *Rev
 		req.URL.Scheme = target.Scheme
 
 		// host, specific the low level tcp connection target
-		if replaceHost != nil {
-			req.URL.Host = replaceHost(req.URL.Host)
+		if fn != nil {
+			req.URL.Host = fn(req.URL.Host, target.Host)
 		} else {
 			req.URL.Host = target.Host
 		}
