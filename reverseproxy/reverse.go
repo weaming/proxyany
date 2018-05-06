@@ -2,6 +2,7 @@
 package reverseproxy
 
 import (
+	"context"
 	"io"
 	"log"
 	"net"
@@ -50,12 +51,20 @@ type ReverseProxy struct {
 	// If it returns an error, the proxy returns a StatusBadGateway error.
 	ModifyResponse func(*http.Response) error
 
+	// BufferPool optionally specifies a buffer pool to
+	// get byte slices for use by io.CopyBuffer when
+	// copying HTTP response bodies.
+	BufferPool BufferPool
+
 	// Mapping is the mapping of user access domain to remote target domain
 	Mapping *DomainMapping
 }
 
-type requestCanceler interface {
-	CancelRequest(req *http.Request)
+// A BufferPool is an interface for getting and returning temporary
+// byte slices for use by io.CopyBuffer.
+type BufferPool interface {
+	Get() []byte
+	Put([]byte)
 }
 
 // NewReverseProxy returns a new ReverseProxy that routes
@@ -112,33 +121,26 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		transport = http.DefaultTransport
 	}
 
-	outreq := new(http.Request)
-	// Shallow copies of maps, like header
-	*outreq = *req
-
+	ctx := req.Context()
 	if cn, ok := rw.(http.CloseNotifier); ok {
-		if c, ok := transport.(requestCanceler); ok {
-			// After the Handler has returned, there is no guarantee
-			// that the channel receives a value, so to make sure
-			reqDone := make(chan struct{})
-			defer close(reqDone)
-			clientGone := cn.CloseNotify()
-
-			go func() {
-				select {
-				case <-clientGone:
-					c.CancelRequest(outreq)
-				case <-reqDone:
-				}
-			}()
-		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		notifyChan := cn.CloseNotify()
+		go func() {
+			select {
+			case <-notifyChan:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
 	}
 
-	p.Director(outreq)
-	outreq.Close = false
+	outreq := req.WithContext(ctx) // includes shallow copies of maps, but okay
+	if req.ContentLength == 0 {
+		outreq.Body = nil // Issue 16036: nil Body for http.Transport retries
+	}
 
-	// We may modify the header (shallow copied above), so we copy it.
-	outreq.Header = make(http.Header)
 	copyHeader(outreq.Header, req.Header)
 
 	// Remove hop-by-hop headers listed in the "Connection" header, Remove hop-by-hop headers.
@@ -150,6 +152,8 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Add X-Forwarded-For Header.
 	addXForwardedForHeader(outreq)
 
+	// 2. do request part
+
 	res, err := transport.RoundTrip(outreq)
 	if err != nil {
 		p.logf("http: proxy error: %v", err)
@@ -157,7 +161,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Response part
+	// 3. response part
 
 	// Remove hop-by-hop headers listed in the "Connection" header of the response, Remove hop-by-hop headers.
 	removeHeaders(res.Header)
@@ -267,7 +271,7 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) (int64, error) {
+func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) {
 	if p.FlushInterval != 0 {
 		if wf, ok := dst.(writeFlusher); ok {
 			mlw := &maxLatencyWriter{
@@ -282,7 +286,42 @@ func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) (int64, error)
 		}
 	}
 
-	return io.Copy(dst, src)
+	var buf []byte
+	if p.BufferPool != nil {
+		buf = p.BufferPool.Get()
+	}
+	p.copyBuffer(dst, src, buf)
+	if p.BufferPool != nil {
+		p.BufferPool.Put(buf)
+	}
+}
+
+func (p *ReverseProxy) copyBuffer(dst io.Writer, src io.Reader, buf []byte) (int64, error) {
+	if len(buf) == 0 {
+		buf = make([]byte, 32*1024)
+	}
+	var written int64
+	for {
+		nr, rerr := src.Read(buf)
+		if rerr != nil && rerr != io.EOF && rerr != context.Canceled {
+			p.logf("httputil: ReverseProxy read error during body copy: %v", rerr)
+		}
+		if nr > 0 {
+			nw, werr := dst.Write(buf[:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if werr != nil {
+				return written, werr
+			}
+			if nr != nw {
+				return written, io.ErrShortWrite
+			}
+		}
+		if rerr != nil {
+			return written, rerr
+		}
+	}
 }
 
 func (p *ReverseProxy) logf(format string, args ...interface{}) {
