@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -215,9 +214,8 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		writerOut: rw,
 	}
 	r, w, err := bodyReplacer.HandleCompression()
-	rw = w.(http.ResponseWriter)
 	// p.copyResponse(rw, r)
-	p.rewriteBody(rw, r)
+	p.rewriteBody(w, r)
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
@@ -302,8 +300,6 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 		bodyData = make([]byte, 0)
 	}
 
-	rw := dst.(http.ResponseWriter)
-	rw.Header().Set("content-length", strconv.Itoa(len(bodyData)))
 	written, err := dst.Write(bodyData)
 	if err != nil || written != len(bodyData) {
 		p.logf("rewrite body error: %v, %v/%v", err, len(bodyData), written)
