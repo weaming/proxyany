@@ -16,7 +16,6 @@ import (
 
 const (
 	defaultTimeout = time.Minute * 5
-	contextKey     = "mapping"
 )
 
 // ReverseProxy is an HTTP Handler that takes an incoming request and
@@ -32,7 +31,7 @@ type ReverseProxy struct {
 	// back to the original client unmodified.
 	// Director must not access the provided Request
 	// after returning.
-	Director func(*http.Request)
+	Director func(*http.Request, *DomainMapping)
 
 	// The transport used to perform proxy requests.
 	// default is http.DefaultTransport.
@@ -49,11 +48,6 @@ type ReverseProxy struct {
 	// standard logger.
 	ErrorLog *log.Logger
 
-	// ModifyResponse is an optional function that
-	// modifies the Response from the backend.
-	// If it returns an error, the proxy returns a StatusBadGateway error.
-	ModifyResponse func(*http.Response) error
-
 	MapGroup MapGroup
 }
 
@@ -66,10 +60,8 @@ type ReverseProxy struct {
 // NewReverseProxy does not rewrite the Host header.
 // To rewrite Host headers, use ReverseProxy directly with a custom
 // Director policy.
-func NewReverseProxy(mapGroup MapGroup) *ReverseProxy {
-	director := func(req *http.Request) {
-		mapping := req.Context().Value(contextKey).(DomainMapping)
-
+func NewReverseProxy(mapGroup *MapGroup) *ReverseProxy {
+	director := func(req *http.Request, mapping *DomainMapping) {
 		// 1. req.URL
 		// scheme
 		req.URL.Scheme = mapping.Target.Scheme
@@ -116,16 +108,17 @@ func NewReverseProxy(mapGroup MapGroup) *ReverseProxy {
 			DualStack: true,
 		}).DialContext,
 	}
-	return &ReverseProxy{Director: director, Transport: transport, MapGroup: mapGroup}
+	return &ReverseProxy{Director: director, Transport: transport, MapGroup: *mapGroup}
 }
 
 func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// get domain mapping
-	mapping := p.MapGroup.GetMapping(req)
+	mapping := p.MapGroup.GetMapping(req.Host)
 	if mapping == nil {
 		panic(errors.New("mapping not found for request host"))
 	}
-	ctx := context.WithValue(req.Context(), contextKey, mapping)
+
+	ctx := req.Context()
 
 	if cn, ok := rw.(http.CloseNotifier); ok {
 		var cancel context.CancelFunc
@@ -150,7 +143,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	copyHeader(outreq.Header, req.Header, nil)
 
-	p.Director(outreq)
+	p.Director(outreq, mapping)
 	outreq.Close = false
 
 	// Remove hop-by-hop headers listed in the "Connection" header, Remove hop-by-hop headers.
@@ -177,14 +170,6 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	removeHeaders(res.Header)
 	// replace domain in headers reversely
 	mapping.Reverse().ReplaceHeader(&res.Header)
-
-	if p.ModifyResponse != nil {
-		if err := p.ModifyResponse(res); err != nil {
-			p.logf("http: proxy error 2: %v", err)
-			rw.WriteHeader(http.StatusBadGateway)
-			return
-		}
-	}
 
 	// Copy header from response to client.
 	copyHeader(rw.Header(), res.Header, &[]string{"content-length"})

@@ -14,6 +14,7 @@ var (
 	bind          = ":20443"
 	https         = false
 	allowedDomain = "bitsflow.org"
+	mg            *reverseproxy.MapGroup
 )
 
 func init() {
@@ -21,18 +22,25 @@ func init() {
 	flag.BoolVar(&https, "https", https, "HTTPS mode, auto certification from let's encrypt")
 
 	flag.Parse()
+
+	mg = reverseproxy.NewMapGroup([]reverseproxy.DomainMapping{
+		reverseproxy.DomainMapping{From: "t.byteio.cn", To: "https://twitter.com"},
+		reverseproxy.DomainMapping{From: "img.byteio.cn", To: "https://twimg.com"},
+	})
 }
 
 func main() {
 	srv := newProxyServer()
 	if https {
-		config := newConfig(srv)
-		fmt.Printf("proxy from %v to :443\n", target)
+		config := NewConfig(srv)
+		config.IsHostAllowed = isHostAllowed
+
+		fmt.Printf("listening :443\n")
 		config.ListenAndServeTLS()
 	} else {
 		srv.Addr = bind
 
-		fmt.Printf("proxy from %v to %v\n", target, bind)
+		fmt.Printf("listening %v\n", target, bind)
 		err := srv.ListenAndServe()
 
 		if err != nil {
@@ -45,15 +53,18 @@ func main() {
 
 func newProxyServer() *http.Server {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mg := reverseproxy.NewMapGroup([]reverseproxy.DomainMapping{
-			reverseproxy.DomainMapping{From: "t.bitsflow.org", To: "https://twitter.com"},
-			reverseproxy.DomainMapping{From: "t.bitsflow.org", To: "https://twitter.com"},
-		})
 		proxy := reverseproxy.NewReverseProxy(mg)
 		proxy.ServeHTTP(w, r)
 	})
 
-	srv := newHTTPServer()
+	srv := NewHTTPServer()
 	srv.Handler = handler
 	return srv
+}
+
+func isHostAllowed(host string) bool {
+	if mg.GetMapping(host) != nil {
+		return true
+	}
+	return false
 }

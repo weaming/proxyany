@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,28 +48,30 @@ type MapGroup struct {
 	maps []DomainMapping
 }
 
-func NewMapGroup(maps []DomainMapping) MapGroup {
-	rv := MapGroup{maps}
+func NewMapGroup(maps []DomainMapping) *MapGroup {
+	rv := &MapGroup{maps}
 	rv.init()
 	return rv
 }
 
 func (p *MapGroup) init() {
-	for _, mm := range p.maps {
+	for i, mm := range p.maps {
 		url, err := url.Parse(mm.To)
 		if err != nil {
 			panic(err)
 		}
-		mm.Target = url
+		p.maps[i].Target = url
+		p.maps[i].To = url.Host
 	}
 }
 
-func (p *MapGroup) GetMapping(req *http.Request) *DomainMapping {
+func (p *MapGroup) GetMapping(host string) *DomainMapping {
 	for _, mm := range p.maps {
-		if req.Host == mm.From {
+		if strings.HasSuffix(host, mm.From) {
 			return &mm
 		}
 	}
+	log.Printf("can't find mapping for %v\n", host)
 	return nil
 }
 
