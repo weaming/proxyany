@@ -148,7 +148,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		outreq.Body = nil // Issue 16036: nil Body for http.Transport retries
 	}
 
-	copyHeader(outreq.Header, req.Header)
+	copyHeader(outreq.Header, req.Header, nil)
 
 	p.Director(outreq)
 	outreq.Close = false
@@ -187,7 +187,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// Copy header from response to client.
-	copyHeader(rw.Header(), res.Header)
+	copyHeader(rw.Header(), res.Header, &[]string{"content-length"})
 
 	// The "Trailer" header isn't included in the Transport's response, Build it up from Trailer.
 	if len(res.Trailer) > 0 {
@@ -221,7 +221,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
-	copyHeader(rw.Header(), res.Trailer)
+	copyHeader(rw.Header(), res.Trailer, nil)
 }
 
 func (p *ReverseProxy) ProxyHTTPS(rw http.ResponseWriter, req *http.Request) {

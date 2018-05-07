@@ -29,8 +29,15 @@ func (p *DomainMapping) ReplaceBytes(content []byte) []byte {
 }
 
 func (p *DomainMapping) ReplaceHeader(head *http.Header) {
-	for k := range map[string][]string(*head) {
-		head.Set(k, p.ReplaceStr(head.Get(k)))
+	for k, vv := range *head {
+		for i, v := range vv {
+			v = p.ReplaceStr(v)
+			if i == 0 {
+				head.Set(k, v)
+			} else {
+				head.Add(k, v)
+			}
+		}
 	}
 }
 

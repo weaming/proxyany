@@ -62,10 +62,22 @@ func singleJoiningSlash(a, b string) string {
 	return a + b
 }
 
-func copyHeader(dst, src http.Header) {
+func copyHeader(dst, src http.Header, ignore *[]string) {
+outer:
 	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
+		if ignore != nil {
+			for _, ig := range *ignore {
+				if strings.ToLower(k) == ig {
+					continue outer
+				}
+			}
+		}
+		for i, v := range vv {
+			if i == 0 {
+				dst.Set(k, v)
+			} else {
+				dst.Add(k, v)
+			}
 		}
 	}
 }
