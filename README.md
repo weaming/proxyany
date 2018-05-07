@@ -4,6 +4,7 @@
 
 - Reverse proxy one site to any host, any port
 - Built-in HTTPS certification from let's encrypt (force 443 port)
+- Rewrite response headers and text body, replace it from the target domain to your domain
 
 ## Usage
 
