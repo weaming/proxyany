@@ -123,11 +123,6 @@ func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
 }
 
 func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
-	transport := p.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-
 	ctx := req.Context()
 	if cn, ok := rw.(http.CloseNotifier); ok {
 		var cancel context.CancelFunc
@@ -164,9 +159,9 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// 2. do request part
 
-	res, err := transport.RoundTrip(outreq)
+	res, err := p.Transport.RoundTrip(outreq)
 	if err != nil {
-		p.logf("http: proxy error: %v", err)
+		p.logf("http: proxy error 1: %v", err)
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -180,7 +175,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	if p.ModifyResponse != nil {
 		if err := p.ModifyResponse(res); err != nil {
-			p.logf("http: proxy error: %v", err)
+			p.logf("http: proxy error 2: %v", err)
 			rw.WriteHeader(http.StatusBadGateway)
 			return
 		}
@@ -231,13 +226,13 @@ func (p *ReverseProxy) ProxyHTTPS(rw http.ResponseWriter, req *http.Request) {
 
 	clientConn, _, err := hij.Hijack()
 	if err != nil {
-		p.logf("http: proxy error: %v", err)
+		p.logf("http: proxy error 3: %v", err)
 		return
 	}
 
 	proxyConn, err := net.Dial("tcp", req.URL.Host)
 	if err != nil {
-		p.logf("http: proxy error: %v", err)
+		p.logf("http: proxy error 4: %v", err)
 		return
 	}
 
@@ -254,19 +249,19 @@ func (p *ReverseProxy) ProxyHTTPS(rw http.ResponseWriter, req *http.Request) {
 
 	err = clientConn.SetDeadline(deadline)
 	if err != nil {
-		p.logf("http: proxy error: %v", err)
+		p.logf("http: proxy error 5: %v", err)
 		return
 	}
 
 	err = proxyConn.SetDeadline(deadline)
 	if err != nil {
-		p.logf("http: proxy error: %v", err)
+		p.logf("http: proxy error 6: %v", err)
 		return
 	}
 
 	_, err = clientConn.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
 	if err != nil {
-		p.logf("http: proxy error: %v", err)
+		p.logf("http: proxy error 7: %v", err)
 		return
 	}
 
