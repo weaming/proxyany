@@ -30,6 +30,7 @@ $ proxyany -from https://www.google.com -https
 $ proxyany -from https://static.rust-lang.org -https -domain rustup.bitsflow.org
 ```
 
-You could modify your hosts records to point the domain to your server,
-then you could bypass the firewall to visit the domain,
-your server only acts as an transparent proxy.
+You could run `proxyany -from https://<domain> -https -domain <domain>` first,
+then modify your hosts records to point the domain to your server,
+so that you could visit the site bypassing the firewall.
+Your server only acts as an transparent proxy.
