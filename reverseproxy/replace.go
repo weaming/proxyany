@@ -43,29 +43,29 @@ func (p *DomainMapping) ReplaceHeader(head *http.Header) {
 }
 
 type BodyReplace struct {
-	reqIn     *http.Request       // client request
-	resIn     *http.Response      // server response
-	writerOut http.ResponseWriter // proxy response
+	requestIn  *http.Request       // client request
+	responseIn *http.Response      // server response
+	writerOut  http.ResponseWriter // proxy response
 }
 
 func (p *BodyReplace) HandleCompression() (readerIn io.Reader, writerOut io.Writer, err error) {
-	readerIn = p.resIn.Body
+	readerIn = p.responseIn.Body
 	writerOut = p.writerOut
 
-	reqAcceptEncoding := p.reqIn.Header.Get("Accept-Encoding")
+	reqAcceptEncoding := p.requestIn.Header.Get("Accept-Encoding")
 	// We are ignoring any q-value here, so this is wrong for the case q=0
 	clientAcceptsGzip := strings.Contains(reqAcceptEncoding, "gzip")
 	log.Println("client request accept encoding:", reqAcceptEncoding, clientAcceptsGzip)
 
 	p.writerOut.Header().Del("Content-Encoding")
 
-	if p.resIn.Header.Get("Content-Encoding") == "gzip" {
+	if p.responseIn.Header.Get("Content-Encoding") == "gzip" {
 		var e error
 		readerIn, e = gzip.NewReader(readerIn)
 		if e != nil {
 			// Work around the closed-body-on-redirect bug in the runtime
 			// https://github.com/golang/go/issues/10069
-			readerIn = p.resIn.Body
+			readerIn = p.responseIn.Body
 			return
 		}
 

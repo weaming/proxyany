@@ -210,9 +210,9 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// decompress and compress
 	bodyReplacer := BodyReplace{
-		reqIn:     req,
-		resIn:     res,
-		writerOut: rw,
+		requestIn:  req,
+		responseIn: res,
+		writerOut:  rw,
 	}
 	r, w, err := bodyReplacer.HandleCompression()
 	p.rewriteBody(w, r)
