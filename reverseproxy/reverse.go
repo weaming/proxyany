@@ -1,13 +1,16 @@
 // fork from https://github.com/cssivision/reverseproxy
+// updated from https://golang.org/src/net/http/httputil/reverseproxy.go
 package reverseproxy
 
 import (
 	"context"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -110,6 +113,10 @@ func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
 		if _, ok := req.Header["User-Agent"]; !ok {
 			req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36")
 		}
+
+		// 4. compression
+		// We also try to compress upstream communication
+		req.Header.Set("accept-encoding", "gzip")
 	}
 
 	return &ReverseProxy{Director: director, Mapping: mapping}
@@ -201,7 +208,17 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	p.copyResponse(rw, res.Body)
+	// decompress and compress
+	bodyReplacer := BodyReplace{
+		reqIn:     req,
+		resIn:     res,
+		writerOut: rw,
+	}
+	r, w, err := bodyReplacer.HandleCompression()
+	rw = w.(http.ResponseWriter)
+	// p.copyResponse(rw, r)
+	p.rewriteBody(rw, r)
+
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
 	copyHeader(rw.Header(), res.Trailer)
@@ -274,6 +291,25 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
+	bodyData, err := ioutil.ReadAll(src)
+
+	if err == nil {
+		bodyData = p.Mapping.ReplaceBytes(bodyData)
+	} else {
+		// Work around the closed-body-on-redirect bug in the runtime
+		// https://github.com/golang/go/issues/10069
+		bodyData = make([]byte, 0)
+	}
+
+	rw := dst.(http.ResponseWriter)
+	rw.Header().Set("content-length", strconv.Itoa(len(bodyData)))
+	written, err := dst.Write(bodyData)
+	if err != nil || written != len(bodyData) {
+		p.logf("rewrite body error: %v, %v/%v", err, len(bodyData), written)
+	}
+}
+
 func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) {
 	if p.FlushInterval != 0 {
 		if wf, ok := dst.(writeFlusher); ok {
@@ -293,7 +329,9 @@ func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) {
 	if p.BufferPool != nil {
 		buf = p.BufferPool.Get()
 	}
+
 	p.copyBuffer(dst, src, buf)
+
 	if p.BufferPool != nil {
 		p.BufferPool.Put(buf)
 	}
