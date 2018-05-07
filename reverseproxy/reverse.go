@@ -168,7 +168,9 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Remove hop-by-hop headers listed in the "Connection" header of the response, Remove hop-by-hop headers.
 	removeHeaders(res.Header)
 	// replace domain in headers reversely
-	mapping.Reverse().ReplaceHeader(&res.Header)
+	for _, mp := range p.MapGroup.maps {
+		mp.Reverse().ReplaceHeader(&res.Header)
+	}
 
 	// Copy header from response to client.
 	copyHeader(rw.Header(), res.Header, &[]string{"content-length"})
