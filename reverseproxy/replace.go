@@ -42,13 +42,13 @@ func (p *DomainMapping) ReplaceHeader(head *http.Header) {
 	}
 }
 
-type BodyReplace struct {
+type BodyDecompressor struct {
 	requestIn  *http.Request       // client request
 	responseIn *http.Response      // server response
 	writerOut  http.ResponseWriter // proxy response
 }
 
-func (p *BodyReplace) HandleCompression() (readerIn io.Reader, writerOut io.Writer, err error) {
+func (p *BodyDecompressor) HandleCompression() (readerIn io.Reader, writerOut io.Writer, err error) {
 	readerIn = p.responseIn.Body
 	writerOut = p.writerOut
 

@@ -209,12 +209,12 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// decompress and compress
-	bodyReplacer := BodyReplace{
+	decompressor := BodyDecompressor{
 		requestIn:  req,
 		responseIn: res,
 		writerOut:  rw,
 	}
-	r, w, err := bodyReplacer.HandleCompression()
+	r, w, err := decompressor.HandleCompression()
 	p.rewriteBody(w, r)
 
 	// close now, instead of defer, to populate res.Trailer
