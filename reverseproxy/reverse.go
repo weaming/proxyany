@@ -4,7 +4,6 @@ package reverseproxy
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -54,20 +53,8 @@ type ReverseProxy struct {
 	// If it returns an error, the proxy returns a StatusBadGateway error.
 	ModifyResponse func(*http.Response) error
 
-	// BufferPool optionally specifies a buffer pool to
-	// get byte slices for use by io.CopyBuffer when
-	// copying HTTP response bodies.
-	BufferPool BufferPool
-
 	// Mapping is the mapping of user access domain to remote target domain
 	Mapping *DomainMapping
-}
-
-// A BufferPool is an interface for getting and returning temporary
-// byte slices for use by io.CopyBuffer.
-type BufferPool interface {
-	Get() []byte
-	Put([]byte)
 }
 
 // NewReverseProxy returns a new ReverseProxy that routes
@@ -119,7 +106,20 @@ func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
 		req.Header.Set("accept-encoding", "gzip")
 	}
 
-	return &ReverseProxy{Director: director, Mapping: mapping}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableCompression:    true,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+	}
+	return &ReverseProxy{Director: director, Mapping: mapping, Transport: transport}
 }
 
 func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -176,7 +176,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Remove hop-by-hop headers listed in the "Connection" header of the response, Remove hop-by-hop headers.
 	removeHeaders(res.Header)
 	// replace domain in headers reversely
-	p.Mapping.Reverse().ReplaceHeader(&req.Header)
+	p.Mapping.Reverse().ReplaceHeader(&res.Header)
 
 	if p.ModifyResponse != nil {
 		if err := p.ModifyResponse(res); err != nil {
@@ -187,7 +187,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// Copy header from response to client.
-	copyHeader(rw.Header(), res.Header, &[]string{"content-length", "x-xss-protection"})
+	copyHeader(rw.Header(), res.Header, &[]string{"content-length"})
 
 	// The "Trailer" header isn't included in the Transport's response, Build it up from Trailer.
 	if len(res.Trailer) > 0 {
@@ -215,12 +215,10 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		writerOut: rw,
 	}
 	r, w, err := bodyReplacer.HandleCompression()
-	// p.copyResponse(rw, r)
 	p.rewriteBody(w, r)
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
-	fmt.Println(res.Trailer)
 	copyHeader(rw.Header(), res.Trailer, nil)
 }
 
@@ -295,7 +293,7 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 	bodyData, err := ioutil.ReadAll(src)
 
 	if err == nil {
-		bodyData = p.Mapping.ReplaceBytes(bodyData)
+		bodyData = p.Mapping.Reverse().ReplaceBytes(bodyData)
 	} else {
 		// Work around the closed-body-on-redirect bug in the runtime
 		// https://github.com/golang/go/issues/10069
@@ -303,63 +301,8 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 	}
 
 	written, err := dst.Write(bodyData)
-	if err != nil || written != len(bodyData) {
+	if err != nil || written != len(bodyData) || len(bodyData) == 0 {
 		p.logf("rewrite body error: %v, %v/%v", err, len(bodyData), written)
-	}
-}
-
-func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) {
-	if p.FlushInterval != 0 {
-		if wf, ok := dst.(writeFlusher); ok {
-			mlw := &maxLatencyWriter{
-				dst:     wf,
-				latency: p.FlushInterval,
-				done:    make(chan bool),
-			}
-
-			go mlw.flushLoop()
-			defer mlw.stop()
-			dst = mlw
-		}
-	}
-
-	var buf []byte
-	if p.BufferPool != nil {
-		buf = p.BufferPool.Get()
-	}
-
-	p.copyBuffer(dst, src, buf)
-
-	if p.BufferPool != nil {
-		p.BufferPool.Put(buf)
-	}
-}
-
-func (p *ReverseProxy) copyBuffer(dst io.Writer, src io.Reader, buf []byte) (int64, error) {
-	if len(buf) == 0 {
-		buf = make([]byte, 32*1024)
-	}
-	var written int64
-	for {
-		nr, rerr := src.Read(buf)
-		if rerr != nil && rerr != io.EOF && rerr != context.Canceled {
-			p.logf("httputil: ReverseProxy read error during body copy: %v", rerr)
-		}
-		if nr > 0 {
-			nw, werr := dst.Write(buf[:nr])
-			if nw > 0 {
-				written += int64(nw)
-			}
-			if werr != nil {
-				return written, werr
-			}
-			if nr != nw {
-				return written, io.ErrShortWrite
-			}
-		}
-		if rerr != nil {
-			return written, rerr
-		}
 	}
 }
 

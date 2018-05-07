@@ -49,12 +49,12 @@ func main() {
 func newProxyServer() *http.Server {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		targetURL, err := url.Parse(target)
-
 		if err != nil {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+
 		proxy := reverseproxy.NewReverseProxy(targetURL, allowedDomain)
 		proxy.ServeHTTP(w, r)
 	})
