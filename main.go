@@ -40,7 +40,7 @@ func main() {
 	} else {
 		srv.Addr = bind
 
-		fmt.Printf("listening %v\n", target, bind)
+		fmt.Printf("listening %v\n", bind)
 		err := srv.ListenAndServe()
 
 		if err != nil {
