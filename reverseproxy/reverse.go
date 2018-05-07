@@ -4,18 +4,19 @@ package reverseproxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
 
 const (
 	defaultTimeout = time.Minute * 5
+	contextKey     = "mapping"
 )
 
 // ReverseProxy is an HTTP Handler that takes an incoming request and
@@ -53,8 +54,7 @@ type ReverseProxy struct {
 	// If it returns an error, the proxy returns a StatusBadGateway error.
 	ModifyResponse func(*http.Response) error
 
-	// Mapping is the mapping of user access domain to remote target domain
-	Mapping *DomainMapping
+	MapGroup MapGroup
 }
 
 // NewReverseProxy returns a new ReverseProxy that routes
@@ -66,25 +66,22 @@ type ReverseProxy struct {
 // NewReverseProxy does not rewrite the Host header.
 // To rewrite Host headers, use ReverseProxy directly with a custom
 // Director policy.
-func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
-	mapping := &DomainMapping{
-		from: accessDomain,
-		to:   target.Host,
-	}
-
+func NewReverseProxy(mapGroup MapGroup) *ReverseProxy {
 	director := func(req *http.Request) {
+		mapping := req.Context().Value(contextKey).(DomainMapping)
+
 		// 1. req.URL
 		// scheme
-		req.URL.Scheme = target.Scheme
+		req.URL.Scheme = mapping.Target.Scheme
 
 		// host, specific the low level tcp connection target
 		req.URL.Host = mapping.ReplaceStr(req.Host)
 
 		// path
-		req.URL.Path = singleJoiningSlash(target.Path, req.URL.Path)
+		req.URL.Path = singleJoiningSlash(mapping.Target.Path, req.URL.Path)
 
 		// query
-		targetQuery := target.RawQuery
+		targetQuery := mapping.Target.RawQuery
 		if targetQuery == "" || req.URL.RawQuery == "" {
 			req.URL.RawQuery = targetQuery + req.URL.RawQuery
 		} else {
@@ -93,8 +90,7 @@ func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
 
 		// 2. req.Host, specific the http request content, aka "Host" header
 		// If Host is empty, the Request.Write method uses the value of URL.Host.
-		// force use URL.Host
-		req.Host = req.URL.Host
+		req.Host = req.URL.Host // force use URL.Host
 
 		// 3. req.Header
 		if _, ok := req.Header["User-Agent"]; !ok {
@@ -107,23 +103,30 @@ func NewReverseProxy(target *url.URL, accessDomain string) *ReverseProxy {
 	}
 
 	transport := &http.Transport{
+		// disable comression, we will set it later manully
+		DisableCompression:    true,
 		Proxy:                 http.ProxyFromEnvironment,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		DisableCompression:    true,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
 		}).DialContext,
 	}
-	return &ReverseProxy{Director: director, Mapping: mapping, Transport: transport}
+	return &ReverseProxy{Director: director, Transport: transport, MapGroup: mapGroup}
 }
 
 func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
+	// get domain mapping
+	mapping := p.MapGroup.GetMapping(req)
+	if mapping == nil {
+		panic(errors.New("mapping not found for request host"))
+	}
+	ctx := context.WithValue(req.Context(), contextKey, mapping)
+
 	if cn, ok := rw.(http.CloseNotifier); ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
@@ -137,6 +140,8 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 			}
 		}()
 	}
+
+	// outreq to upstream:
 
 	outreq := req.WithContext(ctx) // includes shallow copies of maps, but okay
 	if req.ContentLength == 0 {
@@ -152,7 +157,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	removeHeaders(outreq.Header)
 
 	// replace domain in headers
-	p.Mapping.ReplaceHeader(&req.Header)
+	mapping.ReplaceHeader(&outreq.Header)
 
 	// Add X-Forwarded-For Header.
 	addXForwardedForHeader(outreq)
@@ -171,7 +176,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Remove hop-by-hop headers listed in the "Connection" header of the response, Remove hop-by-hop headers.
 	removeHeaders(res.Header)
 	// replace domain in headers reversely
-	p.Mapping.Reverse().ReplaceHeader(&res.Header)
+	mapping.Reverse().ReplaceHeader(&res.Header)
 
 	if p.ModifyResponse != nil {
 		if err := p.ModifyResponse(res); err != nil {
@@ -210,7 +215,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		writerOut:  rw,
 	}
 	r, w, err := decompressor.HandleCompression()
-	p.rewriteBody(w, r)
+	p.rewriteBody(w, r, mapping)
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
@@ -285,11 +290,11 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
+func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader, mapping *DomainMapping) {
 	bodyData, err := ioutil.ReadAll(src)
 
 	if err == nil {
-		bodyData = p.Mapping.Reverse().ReplaceBytes(bodyData)
+		bodyData = mapping.Reverse().ReplaceBytes(bodyData)
 	} else {
 		// Work around the closed-body-on-redirect bug in the runtime
 		// https://github.com/golang/go/issues/10069

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 
 	"github.com/weaming/proxyany/reverseproxy"
@@ -18,9 +17,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&target, "from", target, "your reverse proxy target url, including path is allowed, then your visit path will be appended to it")
-	flag.StringVar(&bind, "to", bind, "local bind [<host>]:<port>")
-	flag.StringVar(&allowedDomain, "domain", allowedDomain, "domain allowed to access, all sub domains will be allowed too")
+	flag.StringVar(&bind, "bind", bind, "local bind [<host>]:<port>")
 	flag.BoolVar(&https, "https", https, "HTTPS mode, auto certification from let's encrypt")
 
 	flag.Parse()
@@ -48,14 +45,11 @@ func main() {
 
 func newProxyServer() *http.Server {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		targetURL, err := url.Parse(target)
-		if err != nil {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		proxy := reverseproxy.NewReverseProxy(targetURL, allowedDomain)
+		mg := reverseproxy.NewMapGroup([]reverseproxy.DomainMapping{
+			reverseproxy.DomainMapping{From: "t.bitsflow.org", To: "https://twitter.com"},
+			reverseproxy.DomainMapping{From: "t.bitsflow.org", To: "https://twitter.com"},
+		})
+		proxy := reverseproxy.NewReverseProxy(mg)
 		proxy.ServeHTTP(w, r)
 	})
 

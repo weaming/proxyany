@@ -5,27 +5,29 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
 type DomainMapping struct {
-	from string
-	to   string
+	From   string
+	To     string
+	Target *url.URL
 }
 
 func (p *DomainMapping) Reverse() *DomainMapping {
 	return &DomainMapping{
-		from: p.to,
-		to:   p.from,
+		From: p.To,
+		To:   p.From,
 	}
 }
 
 func (p *DomainMapping) ReplaceStr(content string) string {
-	return strings.Replace(content, p.from, p.to, -1)
+	return strings.Replace(content, p.From, p.To, -1)
 }
 
 func (p *DomainMapping) ReplaceBytes(content []byte) []byte {
-	return bytes.Replace(content, []byte(p.from), []byte(p.to), -1)
+	return bytes.Replace(content, []byte(p.From), []byte(p.To), -1)
 }
 
 func (p *DomainMapping) ReplaceHeader(head *http.Header) {
@@ -39,6 +41,35 @@ func (p *DomainMapping) ReplaceHeader(head *http.Header) {
 			}
 		}
 	}
+}
+
+type MapGroup struct {
+	maps []DomainMapping
+}
+
+func NewMapGroup(maps []DomainMapping) MapGroup {
+	rv := MapGroup{maps}
+	rv.init()
+	return rv
+}
+
+func (p *MapGroup) init() {
+	for _, mm := range p.maps {
+		url, err := url.Parse(mm.To)
+		if err != nil {
+			panic(err)
+		}
+		mm.Target = url
+	}
+}
+
+func (p *MapGroup) GetMapping(req *http.Request) *DomainMapping {
+	for _, mm := range p.maps {
+		if req.Host == mm.From {
+			return &mm
+		}
+	}
+	return nil
 }
 
 type BodyDecompressor struct {
