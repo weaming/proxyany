@@ -55,8 +55,8 @@ func NewMapGroup(maps []DomainMapping) *MapGroup {
 }
 
 func (p *MapGroup) init() {
-	for i, mm := range p.maps {
-		url, err := url.Parse(mm.To)
+	for i, mapping := range p.maps {
+		url, err := url.Parse(mapping.To)
 		if err != nil {
 			panic(err)
 		}
@@ -66,9 +66,9 @@ func (p *MapGroup) init() {
 }
 
 func (p *MapGroup) GetMapping(host string) *DomainMapping {
-	for _, mm := range p.maps {
-		if strings.HasSuffix(host, mm.From) {
-			return &mm
+	for _, mapping := range p.maps {
+		if strings.HasSuffix(host, mapping.From) {
+			return &mapping
 		}
 	}
 	log.Printf("can't find mapping for %v\n", host)

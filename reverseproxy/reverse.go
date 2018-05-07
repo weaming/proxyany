@@ -4,7 +4,6 @@ package reverseproxy
 
 import (
 	"context"
-	"errors"
 	"io"
 	"io/ioutil"
 	"log"
@@ -115,7 +114,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// get domain mapping
 	mapping := p.MapGroup.GetMapping(req.Host)
 	if mapping == nil {
-		panic(errors.New("mapping not found for request host"))
+		return
 	}
 
 	ctx := req.Context()
@@ -200,7 +199,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 		writerOut:  rw,
 	}
 	r, w, err := decompressor.HandleCompression()
-	p.rewriteBody(w, r, mapping)
+	p.rewriteBody(w, r)
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
@@ -275,11 +274,13 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader, mapping *DomainMapping) {
+func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 	bodyData, err := ioutil.ReadAll(src)
 
 	if err == nil {
-		bodyData = mapping.Reverse().ReplaceBytes(bodyData)
+		for _, mapping := range p.MapGroup.maps {
+			bodyData = mapping.Reverse().ReplaceBytes(bodyData)
+		}
 	} else {
 		// Work around the closed-body-on-redirect bug in the runtime
 		// https://github.com/golang/go/issues/10069
