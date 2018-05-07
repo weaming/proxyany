@@ -282,6 +282,7 @@ func (p *ReverseProxy) ProxyHTTPS(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	log.Println(req.RemoteAddr, req.Method, req.Host, req.URL)
 	if req.Method == "CONNECT" {
 		p.ProxyHTTPS(rw, req)
 	} else {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 )
@@ -55,7 +54,6 @@ func (p *BodyDecompressor) HandleCompression() (readerIn io.Reader, writerOut io
 	reqAcceptEncoding := p.requestIn.Header.Get("Accept-Encoding")
 	// We are ignoring any q-value here, so this is wrong for the case q=0
 	clientAcceptsGzip := strings.Contains(reqAcceptEncoding, "gzip")
-	log.Println("client request accept encoding:", reqAcceptEncoding, clientAcceptsGzip)
 
 	p.writerOut.Header().Del("Content-Encoding")
 
