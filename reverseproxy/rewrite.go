@@ -3,17 +3,20 @@ package reverseproxy
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
+	"fmt"
 	"io"
-	"log"
+	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
 type DomainMapping struct {
-	From   string
-	To     string
-	Target *url.URL
+	From   string   `json:"from"`
+	To     string   `json:"to"`
+	Target *url.URL `json:"-"`
 }
 
 func (p *DomainMapping) Reverse() *DomainMapping {
@@ -54,6 +57,25 @@ func NewMapGroup(maps []DomainMapping) *MapGroup {
 	return rv
 }
 
+func LoadMapGroupFromJson(fp string) *MapGroup {
+	raw, err := ioutil.ReadFile(fp)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	mpArr := []DomainMapping{}
+	err = json.Unmarshal(raw, &mpArr)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	rv := &MapGroup{mpArr}
+	rv.init()
+	return rv
+}
+
 func (p *MapGroup) init() {
 	for i, mapping := range p.maps {
 		url, err := url.Parse(mapping.To)
@@ -71,7 +93,6 @@ func (p *MapGroup) GetMapping(host string) *DomainMapping {
 			return &mapping
 		}
 	}
-	log.Printf("can't find mapping for %v\n", host)
 	return nil
 }
 

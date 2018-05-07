@@ -10,23 +10,19 @@ import (
 )
 
 var (
-	target        = "https://www.google.com"
-	bind          = ":20443"
-	https         = false
-	allowedDomain = "bitsflow.org"
-	mg            *reverseproxy.MapGroup
+	bind    = ":20443"
+	https   = false
+	cfgPath = "config.json"
+	mg      *reverseproxy.MapGroup
 )
 
 func init() {
+	flag.StringVar(&cfgPath, "config", cfgPath, "file path domain mapping config in json format")
 	flag.StringVar(&bind, "bind", bind, "local bind [<host>]:<port>")
 	flag.BoolVar(&https, "https", https, "HTTPS mode, auto certification from let's encrypt")
-
 	flag.Parse()
 
-	mg = reverseproxy.NewMapGroup([]reverseproxy.DomainMapping{
-		reverseproxy.DomainMapping{From: "t.byteio.cn", To: "https://twitter.com"},
-		reverseproxy.DomainMapping{From: "img.byteio.cn", To: "https://twimg.com"},
-	})
+	mg = reverseproxy.LoadMapGroupFromJson(cfgPath)
 }
 
 func main() {

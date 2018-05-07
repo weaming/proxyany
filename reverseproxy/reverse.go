@@ -114,6 +114,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// get domain mapping
 	mapping := p.MapGroup.GetMapping(req.Host)
 	if mapping == nil {
+		log.Printf("can't find mapping for %v\n", req.Host)
 		return
 	}
 
