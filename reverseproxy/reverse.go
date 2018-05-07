@@ -4,6 +4,7 @@ package reverseproxy
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -186,7 +187,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// Copy header from response to client.
-	copyHeader(rw.Header(), res.Header, &[]string{"content-length"})
+	copyHeader(rw.Header(), res.Header, &[]string{"content-length", "x-xss-protection"})
 
 	// The "Trailer" header isn't included in the Transport's response, Build it up from Trailer.
 	if len(res.Trailer) > 0 {
@@ -219,6 +220,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
+	fmt.Println(res.Trailer)
 	copyHeader(rw.Header(), res.Trailer, nil)
 }
 
