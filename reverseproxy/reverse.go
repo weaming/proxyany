@@ -186,14 +186,6 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	rw.WriteHeader(res.StatusCode)
-	if len(res.Trailer) > 0 {
-		// Force chunking if we saw a response trailer.
-		// This prevents net/http from calculating the length for short
-		// bodies and adding a Content-Length.
-		if fl, ok := rw.(http.Flusher); ok {
-			fl.Flush()
-		}
-	}
 
 	// decompress and compress
 	decompressor := BodyDecompressor{
@@ -204,9 +196,18 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	r, w, err := decompressor.HandleCompression()
 	p.rewriteBody(w, r)
 
+	if len(res.Trailer) > 0 {
+		// Force chunking if we saw a response trailer.
+		// This prevents net/http from calculating the length for short
+		// bodies and adding a Content-Length.
+		if fl, ok := rw.(http.Flusher); ok {
+			fl.Flush()
+		}
+	}
+
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
-	copyHeader(rw.Header(), res.Trailer, nil)
+	copyHeader(rw.Header(), res.Trailer, &[]string{"content-length"})
 }
 
 func (p *ReverseProxy) ProxyHTTPS(rw http.ResponseWriter, req *http.Request) {
@@ -285,6 +286,7 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 			bodyData = mapping.Reverse().ReplaceBytes(bodyData)
 		}
 	} else {
+		log.Printf("read body error: %v\n", err)
 		// Work around the closed-body-on-redirect bug in the runtime
 		// https://github.com/golang/go/issues/10069
 		bodyData = make([]byte, 0)
@@ -292,6 +294,9 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 
 	written, err := dst.Write(bodyData)
 	if err != nil || written != len(bodyData) || len(bodyData) == 0 {
+		if err.Error() == "http: request method or response status code does not allow body" {
+			return
+		}
 		p.logf("rewrite body error: %v, %v/%v", err, len(bodyData), written)
 	}
 }

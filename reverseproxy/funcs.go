@@ -67,7 +67,7 @@ outer:
 	for k, vv := range src {
 		if ignore != nil {
 			for _, ig := range *ignore {
-				if strings.ToLower(k) == ig {
+				if strings.HasPrefix(strings.ToLower(k), ig) {
 					continue outer
 				}
 			}
