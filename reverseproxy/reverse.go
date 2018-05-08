@@ -157,7 +157,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// 2. do request part
 
-	log.Println("requesting...", outreq.Method, outreq.Host, outreq.URL)
+	log.Println("requesting...", outreq.Method, outreq.URL)
 	res, err := p.Transport.RoundTrip(outreq)
 	if err != nil {
 		p.logf("http: proxy error 1: %v", err)
@@ -175,7 +175,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// Copy header from response to client.
-	copyHeader(rw.Header(), res.Header, &[]string{"content-length"})
+	copyHeader(rw.Header(), res.Header, &[]string{"content-length", "content-encoding"})
 
 	// The "Trailer" header isn't included in the Transport's response, Build it up from Trailer.
 	if len(res.Trailer) > 0 {
@@ -188,14 +188,23 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	rw.WriteHeader(res.StatusCode)
 
-	// decompress and compress
-	decompressor := BodyDecompressor{
-		requestIn:  req,
-		responseIn: res,
-		writerOut:  rw,
+	// gzip part:
+
+	// We are ignoring any q-value here, so this is wrong for the case q=0
+	clientAE := req.Header.Get("Accept-Encoding")
+	clientAcceptsGzip := strings.Contains(clientAE, "gzip")
+
+	rw.Header().Set("Transfer-Encoding", "chunked")
+	if clientAcceptsGzip {
+		// disable gzip because of gzip bug
+		//rw.Header().Set("Transfer-Encoding", "gzip")
 	}
-	r, w, err := decompressor.HandleCompression()
+
+	// decompress and compress
+	r, w, err := HandleCompression(res, rw, clientAcceptsGzip)
 	p.rewriteBody(w, r)
+
+	// trailer part:
 
 	if len(res.Trailer) > 0 {
 		// Force chunking if we saw a response trailer.
@@ -208,7 +217,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// close now, instead of defer, to populate res.Trailer
 	res.Body.Close()
-	copyHeader(rw.Header(), res.Trailer, &[]string{"content-length"})
+	copyHeader(rw.Header(), res.Trailer, nil)
 }
 
 func (p *ReverseProxy) ProxyHTTPS(rw http.ResponseWriter, req *http.Request) {
@@ -283,8 +292,10 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 	bodyData, err := ioutil.ReadAll(src)
 
 	if err == nil {
-		for _, mapping := range p.MapGroup.maps {
-			bodyData = mapping.Reverse().ReplaceBytes(bodyData)
+		if len(bodyData) > 0 {
+			for _, mapping := range p.MapGroup.maps {
+				bodyData = mapping.Reverse().ReplaceBytes(bodyData)
+			}
 		}
 	} else {
 		log.Printf("read body error: %v\n", err)
@@ -292,6 +303,7 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 		// https://github.com/golang/go/issues/10069
 		bodyData = make([]byte, 0)
 	}
+	//fmt.Println(string(bodyData[0:50]))
 
 	written, err := dst.Write(bodyData)
 	if err != nil || written != len(bodyData) || len(bodyData) == 0 {

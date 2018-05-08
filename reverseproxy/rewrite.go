@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -97,36 +98,27 @@ func (p *MapGroup) GetMapping(host string) *DomainMapping {
 }
 
 type BodyDecompressor struct {
-	requestIn  *http.Request       // client request
-	responseIn *http.Response      // server response
-	writerOut  http.ResponseWriter // proxy response
+	requestIn  *http.Request        // client request
+	responseIn *http.Response       // server response
+	writerOut  *http.ResponseWriter // proxy response
 }
 
-func (p *BodyDecompressor) HandleCompression() (readerIn io.Reader, writerOut io.Writer, err error) {
-	readerIn = p.responseIn.Body
-	writerOut = p.writerOut
+func HandleCompression(in *http.Response, out http.ResponseWriter, clientAcceptGzip bool) (reader io.Reader, writer io.Writer, err error) {
+	reader = in.Body
+	writer = out
 
-	reqAcceptEncoding := p.requestIn.Header.Get("Accept-Encoding")
-	// We are ignoring any q-value here, so this is wrong for the case q=0
-	clientAcceptsGzip := strings.Contains(reqAcceptEncoding, "gzip")
-
-	p.writerOut.Header().Del("Content-Encoding")
-
-	if p.responseIn.Header.Get("Content-Encoding") == "gzip" {
-		var e error
-		readerIn, e = gzip.NewReader(readerIn)
+	if in.Header.Get("Content-Encoding") == "gzip" {
+		rd, e := gzip.NewReader(in.Body)
 		if e != nil {
-			// Work around the closed-body-on-redirect bug in the runtime
-			// https://github.com/golang/go/issues/10069
-			readerIn = p.responseIn.Body
-			return
+			log.Println(e)
+		} else {
+			reader = rd
 		}
+	}
 
-		if clientAcceptsGzip {
-			p.writerOut.Header().Set("Content-Encoding", "gzip")
-			gzipW := gzip.NewWriter(writerOut)
-			writerOut = gzipW
-		}
+	if clientAcceptGzip {
+		// Have bug: always write header "Content-Length: 10"
+		//writer = gzip.NewWriter(writer)
 	}
 
 	return

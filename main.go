@@ -13,7 +13,7 @@ var (
 	bind    = ":20443"
 	https   = false
 	cfgPath = "config.json"
-	version = "0.5"
+	version = "version 1.2"
 	mg      *reverseproxy.MapGroup
 )
 
