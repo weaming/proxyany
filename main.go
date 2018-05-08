@@ -13,10 +13,12 @@ var (
 	bind    = ":20443"
 	https   = false
 	cfgPath = "config.json"
+	version = "0.5"
 	mg      *reverseproxy.MapGroup
 )
 
 func init() {
+	fmt.Println(version)
 	flag.StringVar(&cfgPath, "config", cfgPath, "file path domain mapping config in json format")
 	flag.StringVar(&bind, "bind", bind, "local bind [<host>]:<port>")
 	flag.BoolVar(&https, "https", https, "HTTPS mode, auto certification from let's encrypt")
