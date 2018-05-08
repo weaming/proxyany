@@ -157,6 +157,7 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// 2. do request part
 
+	log.Println("requesting...", outreq.Method, outreq.Host, outreq.URL)
 	res, err := p.Transport.RoundTrip(outreq)
 	if err != nil {
 		p.logf("http: proxy error 1: %v", err)

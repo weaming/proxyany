@@ -123,8 +123,9 @@ func (p *BodyDecompressor) HandleCompression() (readerIn io.Reader, writerOut io
 		}
 
 		if clientAcceptsGzip {
-			writerOut = gzip.NewWriter(writerOut)
 			p.writerOut.Header().Set("Content-Encoding", "gzip")
+			gzipW := gzip.NewWriter(writerOut)
+			writerOut = gzipW
 		}
 	}
 
