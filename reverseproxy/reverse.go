@@ -307,7 +307,7 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 
 	written, err := dst.Write(bodyData)
 	if err != nil || written != len(bodyData) || len(bodyData) == 0 {
-		if err.Error() == "http: request method or response status code does not allow body" {
+		if err != nil && err.Error() == "http: request method or response status code does not allow body" {
 			return
 		}
 		p.logf("rewrite body error: %v, %v/%v", err, len(bodyData), written)
