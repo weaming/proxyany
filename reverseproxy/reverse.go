@@ -178,6 +178,9 @@ func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Copy header from response to client.
 	copyHeader(rw.Header(), res.Header, &[]string{"content-length", "content-encoding"})
 
+	// add Access-Control-Allow-Origin
+	rw.Header().Set("Access-Control-Allow-Origin", "*")
+
 	// The "Trailer" header isn't included in the Transport's response, Build it up from Trailer.
 	if len(res.Trailer) > 0 {
 		trailerKeys := make([]string, 0, len(res.Trailer))
