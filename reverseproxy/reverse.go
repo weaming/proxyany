@@ -78,6 +78,7 @@ func NewReverseProxy(mapGroup *MapGroup) *ReverseProxy {
 		} else {
 			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
 		}
+		req.URL.RawQuery = mapping.ReplaceStr(req.URL.RawQuery)
 
 		// 2. req.Host, specific the http request content, aka "Host" header
 		// If Host is empty, the Request.Write method uses the value of URL.Host.
