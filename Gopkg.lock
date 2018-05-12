@@ -2,12 +2,6 @@
 
 
 [[projects]]
-  name = "github.com/cssivision/reverseproxy"
-  packages = ["."]
-  revision = "97815688f02ef1d49e3cd94ce1c4e634c9d0ca06"
-  version = "v0.0.1"
-
-[[projects]]
   branch = "master"
   name = "github.com/weaming/golib"
   packages = ["http/https"]
