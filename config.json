@@ -1,4 +1,4 @@
 [
-  {"from": "wikimedia.wikipedia.drink.cafe", "to": "https://wikimedia.org"},
-  {"from": "wikipedia.drink.cafe", "to": "https://wikipedia.org"}
+  {"from": "wikimedia.wikibedia.herokuapp.com", "to": "https://wikimedia.org"},
+  {"from": "wikibedia.herokuapp.com", "to": "https://wikipedia.org"}
 ]
