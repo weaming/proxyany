@@ -3,6 +3,7 @@
 package reverseproxy
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"io/ioutil"
@@ -300,6 +301,7 @@ func (p *ReverseProxy) rewriteBody(dst io.Writer, src io.Reader) {
 			for _, mapping := range p.MapGroup.maps {
 				bodyData = mapping.Reverse().ReplaceBytes(bodyData)
 			}
+			bodyData = bytes.Replace(bodyData, []byte("https://"), []byte("//"), -1)
 		}
 	} else {
 		log.Printf("read body error: %v\n", err)
