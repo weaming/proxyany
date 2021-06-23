@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -17,6 +18,8 @@ import (
 const (
 	defaultTimeout = time.Minute * 5
 )
+
+var DEBUG = os.Getenv("DEBUG") != ""
 
 // ReverseProxy is an HTTP Handler that takes an incoming request and
 // sends it to another server, proxying the response back to the
@@ -61,40 +64,6 @@ type ReverseProxy struct {
 // To rewrite Host headers, use ReverseProxy directly with a custom
 // Director policy.
 func NewReverseProxy(mapGroup *MapGroup) *ReverseProxy {
-	director := func(req *http.Request, mapping *DomainMapping) {
-		// 1. req.URL
-		// scheme
-		req.URL.Scheme = mapping.Target.Scheme
-
-		// host, specific the low level tcp connection target
-		req.URL.Host = mapping.ReplaceStr(req.Host)
-
-		// path
-		req.URL.Path = singleJoiningSlash(mapping.Target.Path, req.URL.Path)
-
-		// query
-		targetQuery := mapping.Target.RawQuery
-		if targetQuery == "" || req.URL.RawQuery == "" {
-			req.URL.RawQuery = targetQuery + req.URL.RawQuery
-		} else {
-			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
-		}
-		req.URL.RawQuery = mapping.ReplaceStr(req.URL.RawQuery)
-
-		// 2. req.Host, specific the http request content, aka "Host" header
-		// If Host is empty, the Request.Write method uses the value of URL.Host.
-		req.Host = req.URL.Host // force use URL.Host
-
-		// 3. req.Header
-		if _, ok := req.Header["User-Agent"]; !ok {
-			req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36")
-		}
-
-		// 4. compression
-		// We also try to compress upstream communication
-		req.Header.Set("accept-encoding", "gzip")
-	}
-
 	transport := &http.Transport{
 		// disable comression, we will set it later manully
 		DisableCompression:    true,
@@ -109,7 +78,45 @@ func NewReverseProxy(mapGroup *MapGroup) *ReverseProxy {
 			DualStack: true,
 		}).DialContext,
 	}
-	return &ReverseProxy{Director: director, Transport: transport, MapGroup: *mapGroup}
+	return &ReverseProxy{Director: DefaultDirector, Transport: transport, MapGroup: *mapGroup}
+}
+
+func DefaultDirector(req *http.Request, mapping *DomainMapping) {
+	if DEBUG {
+		log.Printf("domain mapping: %+v\n", mapping)
+	}
+
+	// 1. req.URL
+	// scheme
+	req.URL.Scheme = mapping.Target.Scheme
+
+	// host, specific the low level tcp connection target
+	req.URL.Host = mapping.ReplaceStr(req.Host)
+
+	// path
+	req.URL.Path = singleJoiningSlash(mapping.Target.Path, req.URL.Path)
+
+	// query
+	targetQuery := mapping.Target.RawQuery
+	if targetQuery == "" || req.URL.RawQuery == "" {
+		req.URL.RawQuery = targetQuery + req.URL.RawQuery
+	} else {
+		req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
+	}
+	req.URL.RawQuery = mapping.ReplaceStr(req.URL.RawQuery)
+
+	// 2. req.Host, specific the http request content, aka "Host" header
+	// If Host is empty, the Request.Write method uses the value of URL.Host.
+	req.Host = req.URL.Host // force use URL.Host
+
+	// 3. req.Header
+	if _, ok := req.Header["User-Agent"]; !ok {
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36")
+	}
+
+	// 4. compression
+	// We also try to compress upstream communication
+	req.Header.Set("accept-encoding", "gzip")
 }
 
 func (p *ReverseProxy) ProxyHTTP(rw http.ResponseWriter, req *http.Request) {
